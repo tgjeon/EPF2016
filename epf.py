@@ -16,6 +16,7 @@ def evaluation(prediction, label):
 DATA_FOR_EXPERIMENT = 24 * 478  # Competition schedule until 2016-04-22
 PREDICTION_HOURS = 24 * 1       # D+1
 TRAINING_HOURS = 24 * 365       # (2015-01-01:2015-12-31)
+MOVING_WINDOWS_HOURS = 24 * 30  # Moving window with 30 days
 
 # Read hourly prices from EPF2016 dataset (2015-01-01:2016-04-27)
 dateparse = lambda dates: pd.datetime.strptime(dates, '%d/%m/%Y %H:%M')
