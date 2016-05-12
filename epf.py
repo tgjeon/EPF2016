@@ -6,7 +6,7 @@ Created on Wed May  4 21:20:30 2016
 """
 
 import pandas as pd
-#import numpy as np
+import numpy as np
 import datetime
 
 from pandas.tseries.offsets import Hour#, Minute
@@ -26,7 +26,15 @@ PREDICTION_WINDOW_HOURS = 24            # Predict for D+1
 MOVING_WINDOW_SIZE = TRAINING_WINDOW_HOURS + PREDICTION_WINDOW_HOURS    # Moving window with 30 days
 MOVING_WINDOW_STEP = 24         # Moving window move forward 24h
 
+INPUT_LAYER_SIZE = TRAINING_WINDOW_HOURS
+OUTPUT_LAYER_SIZE = PREDICTION_WINDOW_HOURS
+LEARNING_RATE = 0.001
+TRAINING_EPOCHS = 3000
+DROPOUT_RATE = 0.8
+VALIDATION_SIZE = 0   
 
+
+# Evaluation with MSE
 def evaluation(prediction, label):
     return 0
 
@@ -56,17 +64,19 @@ def dataPreparation(rawdata):
     # Split data into train and test data
     TRAINING_PERIODS = TRAINING_DURATION_END - TRAINING_DURATION_START
     
-    train_data = data[:TRAINING_PERIODS.days]
-    train_label = label[:TRAINING_PERIODS.days]
+    train_data = data[:TRAINING_PERIODS.days].values.astype('float')
+    train_label = label[:TRAINING_PERIODS.days].values.astype('float')
     
-    test_data = data[TRAINING_PERIODS.days:]
-    test_label = label[TRAINING_PERIODS.days:]
+    test_data = data[TRAINING_PERIODS.days:].values.astype('float')
+    test_label = label[TRAINING_PERIODS.days:].values.astype('float')
     
     return train_data, train_label, test_data, test_label
 
 
 
-
+'''
+Preprocessing for EPF2016 dataset
+'''
 
 
 # Read hourly prices from EPF2016 dataset (2015-01-01:2016-04-27)
@@ -78,12 +88,93 @@ rawdata = pd.read_csv("./input/ElectricityPrice/RealMarketPriceDataPT.csv",
 
 trainX, trainY, testX, testY = dataPreparation(rawdata)
 
-                   
-
-
 
 
 # Comparison groups
 # Linear models: ARMA, ARIMA, Kalman filters
 # Nonlinear models: NN, SVM, Fuzzy system, Bayesian estimators
 
+import tensorflow as tf
+
+def weight_variable(shape):
+    initial = tf.truncated_normal(shape, stddev=0.1)
+    return tf.Variable(initial)
+
+# Weight initialization (Xavier's init)
+def weight_xavier_init(n_inputs, n_outputs, uniform=True):
+    if uniform:
+        init_range = tf.sqrt(6.0 / (n_inputs + n_outputs))
+        return tf.random_uniform_initializer(-init_range, init_range)
+    else:
+        stddev = tf.sqrt(3.0 / (n_inputs + n_outputs))
+        return tf.truncated_normal_initializer(stddev=stddev)
+
+# Bias initialization
+def bias_variable(shape):
+    initial = tf.constant(0.1, shape=shape)
+    return tf.Variable(initial)
+
+# 2D convolution
+def conv2d(X, W):
+    return tf.nn.conv2d(X, W, strides=[1, 1, 1, 1], padding='SAME')
+
+# Max Pooling
+def max_pool_2x2(X):
+    return tf.nn.max_pool(X, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+
+
+'''
+Create model with 1D CNN
+'''
+# Create Input and Output
+X = tf.placeholder('float', shape=[None, INPUT_LAYER_SIZE])    
+Y = tf.placeholder('float', shape=[None, OUTPUT_LAYER_SIZE]) 
+dropout_rate = tf.placeholder("float")
+
+# Model Parameters
+W1 = tf.get_variable("W1", shape=[INPUT_LAYER_SIZE, 250], initializer=weight_xavier_init(INPUT_LAYER_SIZE, 250))
+W2 = tf.get_variable("W2", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+W3 = tf.get_variable("W3", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+W4 = tf.get_variable("W4", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+W5 = tf.get_variable("W5", shape=[250, OUTPUT_LAYER_SIZE], initializer=weight_xavier_init(250, OUTPUT_LAYER_SIZE))
+
+B1 = bias_variable([250])
+B2 = bias_variable([250])
+B3 = bias_variable([250])
+B4 = bias_variable([250])
+B5 = bias_variable([OUTPUT_LAYER_SIZE])
+
+
+# Construct model
+_L1 = tf.nn.relu(tf.matmul(X, W1) +  B1)
+L1 = tf.nn.dropout(_L1, dropout_rate)
+_L2 = tf.nn.relu(tf.matmul(L1, W2) + B2)
+L2 = tf.nn.dropout(_L2, dropout_rate)
+_L3 = tf.nn.relu(tf.matmul(L2, W3) + B3)
+L3 = tf.nn.dropout(_L3, dropout_rate)
+_L4 = tf.nn.relu(tf.matmul(L3, W4) + B4)
+L4 = tf.nn.dropout(_L4, dropout_rate)
+
+hypothesis = tf.matmul(L4, W5) + B5
+
+# Minimize error using cross entropy
+cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(hypothesis, Y)) # Softmax loss
+optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(cost) # Adam Optimizer
+
+# Initializing the variables
+init = tf.initialize_all_variables()
+
+with tf.Session() as sess:
+    sess.run(init)
+    
+    # Fit the line
+    for step in range(TRAINING_EPOCHS):
+        sess.run(optimizer, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE})
+
+        if step % 100 == 0:
+              print (step, sess.run(cost, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE}), sess.run(W1), sess.run(W2), sess.run(W3), sess.run(W4), sess.run(W5))
+
+        correct_prediction = tf.equal(tf.argmax(hypothesis, 1), tf.argmax(Y, 1))
+
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+        print ("accuracy:", accuracy.eval({X:testX, Y:testY, dropout_rate:1.0}))
