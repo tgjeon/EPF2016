@@ -6,73 +6,65 @@ Created on Wed May  4 21:20:30 2016
 """
 
 import pandas as pd
-import numpy as np
+#import numpy as np
+import datetime
 
-# For sliding_window function
-from collections import deque
-from itertools import islice
+from pandas.tseries.offsets import Hour#, Minute
 
 
 # Parameters
-DATA_FOR_EXPERIMENT = 24 * 478  # Competition schedule until 2016-04-22
-TRAINING_DURATION = 24 * 365       # (2015-01-01:2015-12-31)
-TEST_DURATION = DATA_FOR_EXPERIMENT - TRAINING_DURATION
+DATA_FOR_EXPERIMENT = datetime.datetime(2016,4,22,23,0,0)  # Competition schedule until 2016-04-22
+TRAINING_DURATION_START = datetime.datetime(2015,1,1,0,0,0)       # (2015-01-01:2015-12-31)
+TRAINING_DURATION_END = datetime.datetime(2015,12,31,23,0,0)
+TEST_DURATION_START = datetime.datetime(2016,1,1,0,0,0)
+TEST_DURATION_END = datetime.datetime(2016,4,22,23,0,0)
 
-TRAINING_HOURS = 24 * 30        # Train for 30 days
-PREDICTION_HOURS = 24            # Predict for D+1
+TRAINING_WINDOW_DAYS = 30
+TRAINING_WINDOW_HOURS = 24 * TRAINING_WINDOW_DAYS        # Train for 30 days
+PREDICTION_WINDOW_HOURS = 24            # Predict for D+1
 
-MOVING_WINDOW_SIZE = TRAINING_HOURS + PREDICTION_HOURS    # Moving window with 30 days
+MOVING_WINDOW_SIZE = TRAINING_WINDOW_HOURS + PREDICTION_WINDOW_HOURS    # Moving window with 30 days
 MOVING_WINDOW_STEP = 24         # Moving window move forward 24h
 
 
 def evaluation(prediction, label):
     return 0
 
-def sliding_window(iterable, size=2, step=1, fillvalue=None):
-    if size < 0 or step < 1:
-        raise ValueError
-    it = iter(iterable)
-    q = deque(islice(it, size), maxlen=size)
-    if not q:
-        return  # empty iterable or size == 0
-    q.extend(fillvalue for _ in range(size - len(q)))  # pad to size
-    while True:
-        yield iter(q)  # iter() to avoid accidental outside modifications
-        q.append(next(it))
-        q.extend(next(it, fillvalue) for _ in range(step - 1))
-        
     
 def dataPreparation(rawdata):
     # Cut data until 2016-04-22
     rawdata = rawdata[:DATA_FOR_EXPERIMENT]
-    
-    it = sliding_window(rawdata['Price'], size=MOVING_WINDOW_SIZE, step=MOVING_WINDOW_STEP)
 
-    data = pd.DataFrame()   
-    label = pd.DataFrame()
- 
-# BUG HERE   
-#    for x in it:
-#        data.append(x[:TRAINING_HOURS])
-#        label.append(x[TRAINING_HOURS:])
-#        for yy in x:
-#            print (yy)
-            
-                       
-    # Make label for future 5-days                    
-#    labels = data[PREDICTION_HOURS:].values
-#    data = data[:-PREDICTION_HOURS].values
+    data = pd.DataFrame(columns=range(TRAINING_WINDOW_HOURS))
+    label = pd.DataFrame(columns=range(PREDICTION_WINDOW_HOURS))
     
+    idx = pd.date_range(start=TRAINING_DURATION_START, periods=MOVING_WINDOW_SIZE, freq='H')    
+
+    data_duration = (TEST_DURATION_END - datetime.timedelta(TRAINING_WINDOW_DAYS)) - TRAINING_DURATION_START
+    
+    for i in range(data_duration.days):    
+        expdata = rawdata.loc[idx]
+        
+        data_row = (expdata[:TRAINING_WINDOW_HOURS].values).transpose()
+        label_row = (expdata[TRAINING_WINDOW_HOURS:].values).transpose()
+    
+        data = data.append(pd.DataFrame(data=data_row, columns=range(TRAINING_WINDOW_HOURS)), ignore_index=True)
+        label = label.append(pd.DataFrame(data=label_row, columns=range(PREDICTION_WINDOW_HOURS)), ignore_index=True)    
+    
+        idx = idx + Hour(MOVING_WINDOW_STEP)
+   
     # Split data into train and test data
-#    train_data = data[:TRAINING_HOURS]
-#    train_label = labels[:TRAINING_HOURS]
+    TRAINING_PERIODS = TRAINING_DURATION_END - TRAINING_DURATION_START
     
-#    test_data = data[TRAINING_HOURS:]
- #   test_label = labels[TRAINING_HOURS:]
+    train_data = data[:TRAINING_PERIODS.days]
+    train_label = label[:TRAINING_PERIODS.days]
     
-#    return train_data, train_label, test_data, test_label
+    test_data = data[TRAINING_PERIODS.days:]
+    test_label = label[TRAINING_PERIODS.days:]
+    
+    return train_data, train_label, test_data, test_label
 
-    return data, label
+
 
 
 
@@ -84,9 +76,8 @@ rawdata = pd.read_csv("./input/ElectricityPrice/RealMarketPriceDataPT.csv",
                    index_col='timeline', date_parser=dateparse)
                    
 
-#trainX, trainY, testX, testY = dataPreparation(rawdata)
+trainX, trainY, testX, testY = dataPreparation(rawdata)
 
-trainX, trainY = dataPreparation(rawdata)
                    
 
 
