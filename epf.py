@@ -22,7 +22,7 @@ TRAINING_DURATION_END = datetime.datetime(2016,4,3,23,0,0)
 TEST_DURATION_START = datetime.datetime(2016,4,4,0,0,0)
 TEST_DURATION_END = datetime.datetime(2016,4,22,23,0,0)
 
-TRAINING_WINDOW_DAYS = 10
+TRAINING_WINDOW_DAYS = 5
 TRAINING_WINDOW_HOURS = 24 * TRAINING_WINDOW_DAYS        # Train for 30 days
 PREDICTION_WINDOW_HOURS = 24            # Predict for D+1
 
@@ -97,37 +97,55 @@ trainX, trainY, testX, testY = dataPreparation(rawdata)
 # Linear models: ARMA, ARIMA, Kalman filters
 # Nonlinear models: NN, SVM, Fuzzy system, Bayesian estimators
 
-# Linear regression
-regr = linear_model.LinearRegression()
 
-# Train the model using training dataset
-regr.fit(trainX, trainY)
+predictions = [
+    ("LinearRegression", linear_model.LinearRegression()),
+    ("RidgeRegression", linear_model.Ridge(alpha=0.5)),
+    ("LassoRegression", linear_model.Lasso(alpha=0.1)),
+    ("ElasticNet", linear_model.ElasticNet()),
+    ("LeastAngleRegression", linear_model.LassoLars(alpha=0.1))
+]
 
-# Predict using the model 
-pred = regr.predict(testX)
+#    ("LogisticRegression", linear_model.LogisticRegression(max_iter=100000)),
+#    ("BayesianRegression", linear_model.BayesianRidge(n_iter=10000))
+#    ("SGDRegression", linear_model.SGDRegressor())
 
-# The mean absolute error (MAE)
-mae = np.mean(np.abs(pred - testY))
 
-print ("Mean Absolute Error: %.2f" % mae)
-print ("Variance score: %.2f" % regr.score(testX, testY))
-
-testY_1D = np.reshape(testY, [1, testY.size])
-pred_1D = np.reshape(pred, [1, pred.size])
+mae = []
 
 # Plot outputs
+testY_1D = np.reshape(testY, [1, testY.size])
+
 plt.rc('figure', figsize=(15, 7))
 plt.plot(range(testY_1D.size), testY_1D[0], color='skyblue', label='Real')
-plt.plot(range(pred_1D.size), pred_1D[0], color='orangered', label='Prediction', alpha=0.5, linewidth=2)
+
+
+for name, predictor in predictions:
+    print ("Training %s" % name)
+    
+    # Training
+    predictor.fit(trainX, trainY)
+    predY = predictor.predict(testX)
+    _mae =  np.mean(np.abs(predY - testY))
+    mae.append(_mae)
+    
+    print ("Mean Absolute Error of %s: %.2f" % (name, _mae))
+    
+    pred_1D = np.reshape(predY, [1, predY.size])
+    plt.plot(range(pred_1D.size), pred_1D[0], label=name, alpha=0.5, linewidth=2)
+    
+
 plt.xlabel('Hour')
 plt.ylabel('Market Price (€/MWh)')
 plt.legend(loc='best')
-
-#plt.xticks(())
-#plt.yticks(())
-
-plt.savefig('linearRegression.png', dpi=400)
+plt.savefig('results.png', dpi=400)
 plt.show()
+    
+
+# Print result
+
+#print ("Variance score: %.2f" % regr.score(testX, testY))
+
 
 
 #import tensorflow as tf
