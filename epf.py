@@ -7,19 +7,22 @@ Created on Wed May  4 21:20:30 2016
 
 import pandas as pd
 import numpy as np
-import datetime
+from sklearn import linear_model
 
+import matplotlib.pyplot as plt
+
+import datetime
 from pandas.tseries.offsets import Hour#, Minute
 
 
 # Parameters
 DATA_FOR_EXPERIMENT = datetime.datetime(2016,4,22,23,0,0)  # Competition schedule until 2016-04-22
 TRAINING_DURATION_START = datetime.datetime(2015,1,1,0,0,0)       # (2015-01-01:2015-12-31)
-TRAINING_DURATION_END = datetime.datetime(2015,12,31,23,0,0)
-TEST_DURATION_START = datetime.datetime(2016,1,1,0,0,0)
+TRAINING_DURATION_END = datetime.datetime(2016,4,3,23,0,0)
+TEST_DURATION_START = datetime.datetime(2016,4,4,0,0,0)
 TEST_DURATION_END = datetime.datetime(2016,4,22,23,0,0)
 
-TRAINING_WINDOW_DAYS = 30
+TRAINING_WINDOW_DAYS = 10
 TRAINING_WINDOW_HOURS = 24 * TRAINING_WINDOW_DAYS        # Train for 30 days
 PREDICTION_WINDOW_HOURS = 24            # Predict for D+1
 
@@ -94,87 +97,120 @@ trainX, trainY, testX, testY = dataPreparation(rawdata)
 # Linear models: ARMA, ARIMA, Kalman filters
 # Nonlinear models: NN, SVM, Fuzzy system, Bayesian estimators
 
-import tensorflow as tf
+# Linear regression
+regr = linear_model.LinearRegression()
 
-def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
+# Train the model using training dataset
+regr.fit(trainX, trainY)
 
-# Weight initialization (Xavier's init)
-def weight_xavier_init(n_inputs, n_outputs, uniform=True):
-    if uniform:
-        init_range = tf.sqrt(6.0 / (n_inputs + n_outputs))
-        return tf.random_uniform_initializer(-init_range, init_range)
-    else:
-        stddev = tf.sqrt(3.0 / (n_inputs + n_outputs))
-        return tf.truncated_normal_initializer(stddev=stddev)
+# Predict using the model 
+pred = regr.predict(testX)
 
-# Bias initialization
-def bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial)
+# The mean absolute error (MAE)
+mae = np.mean(np.abs(pred - testY))
 
-# 2D convolution
-def conv2d(X, W):
-    return tf.nn.conv2d(X, W, strides=[1, 1, 1, 1], padding='SAME')
+print ("Mean Absolute Error: %.2f" % mae)
+print ("Variance score: %.2f" % regr.score(testX, testY))
 
-# Max Pooling
-def max_pool_2x2(X):
-    return tf.nn.max_pool(X, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+testY_1D = np.reshape(testY, [1, testY.size])
+pred_1D = np.reshape(pred, [1, pred.size])
 
+# Plot outputs
+plt.rc('figure', figsize=(15, 7))
+plt.plot(range(testY_1D.size), testY_1D[0], color='skyblue', label='Real')
+plt.plot(range(pred_1D.size), pred_1D[0], color='orangered', label='Prediction', alpha=0.5, linewidth=2)
+plt.xlabel('Hour')
+plt.ylabel('Market Price (€/MWh)')
+plt.legend(loc='best')
 
-'''
-Create model with 1D CNN
-'''
-# Create Input and Output
-X = tf.placeholder('float', shape=[None, INPUT_LAYER_SIZE])    
-Y = tf.placeholder('float', shape=[None, OUTPUT_LAYER_SIZE]) 
-dropout_rate = tf.placeholder("float")
+#plt.xticks(())
+#plt.yticks(())
 
-# Model Parameters
-W1 = tf.get_variable("W1", shape=[INPUT_LAYER_SIZE, 250], initializer=weight_xavier_init(INPUT_LAYER_SIZE, 250))
-W2 = tf.get_variable("W2", shape=[250, 250], initializer=weight_xavier_init(250, 250))
-W3 = tf.get_variable("W3", shape=[250, 250], initializer=weight_xavier_init(250, 250))
-W4 = tf.get_variable("W4", shape=[250, 250], initializer=weight_xavier_init(250, 250))
-W5 = tf.get_variable("W5", shape=[250, OUTPUT_LAYER_SIZE], initializer=weight_xavier_init(250, OUTPUT_LAYER_SIZE))
-
-B1 = bias_variable([250])
-B2 = bias_variable([250])
-B3 = bias_variable([250])
-B4 = bias_variable([250])
-B5 = bias_variable([OUTPUT_LAYER_SIZE])
+plt.savefig('linearRegression.png', dpi=400)
+plt.show()
 
 
-# Construct model
-_L1 = tf.nn.relu(tf.matmul(X, W1) +  B1)
-L1 = tf.nn.dropout(_L1, dropout_rate)
-_L2 = tf.nn.relu(tf.matmul(L1, W2) + B2)
-L2 = tf.nn.dropout(_L2, dropout_rate)
-_L3 = tf.nn.relu(tf.matmul(L2, W3) + B3)
-L3 = tf.nn.dropout(_L3, dropout_rate)
-_L4 = tf.nn.relu(tf.matmul(L3, W4) + B4)
-L4 = tf.nn.dropout(_L4, dropout_rate)
-
-hypothesis = tf.matmul(L4, W5) + B5
-
-# Minimize error using cross entropy
-cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(hypothesis, Y)) # Softmax loss
-optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(cost) # Adam Optimizer
-
-# Initializing the variables
-init = tf.initialize_all_variables()
-
-with tf.Session() as sess:
-    sess.run(init)
-    
-    # Fit the line
-    for step in range(TRAINING_EPOCHS):
-        sess.run(optimizer, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE})
-
-        if step % 100 == 0:
-              print (step, sess.run(cost, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE}), sess.run(W1), sess.run(W2), sess.run(W3), sess.run(W4), sess.run(W5))
-
-        correct_prediction = tf.equal(tf.argmax(hypothesis, 1), tf.argmax(Y, 1))
-
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-        print ("accuracy:", accuracy.eval({X:testX, Y:testY, dropout_rate:1.0}))
+#import tensorflow as tf
+#
+#def weight_variable(shape):
+#    initial = tf.truncated_normal(shape, stddev=0.1)
+#    return tf.Variable(initial)
+#
+## Weight initialization (Xavier's init)
+#def weight_xavier_init(n_inputs, n_outputs, uniform=True):
+#    if uniform:
+#        init_range = tf.sqrt(6.0 / (n_inputs + n_outputs))
+#        return tf.random_uniform_initializer(-init_range, init_range)
+#    else:
+#        stddev = tf.sqrt(3.0 / (n_inputs + n_outputs))
+#        return tf.truncated_normal_initializer(stddev=stddev)
+#
+## Bias initialization
+#def bias_variable(shape):
+#    initial = tf.constant(0.1, shape=shape)
+#    return tf.Variable(initial)
+#
+## 2D convolution
+#def conv2d(X, W):
+#    return tf.nn.conv2d(X, W, strides=[1, 1, 1, 1], padding='SAME')
+#
+## Max Pooling
+#def max_pool_2x2(X):
+#    return tf.nn.max_pool(X, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+#
+#
+#'''
+#Create model with 1D CNN
+#'''
+## Create Input and Output
+#X = tf.placeholder('float', shape=[None, INPUT_LAYER_SIZE])    
+#Y = tf.placeholder('float', shape=[None, OUTPUT_LAYER_SIZE]) 
+#dropout_rate = tf.placeholder("float")
+#
+## Model Parameters
+#W1 = tf.get_variable("W1", shape=[INPUT_LAYER_SIZE, 250], initializer=weight_xavier_init(INPUT_LAYER_SIZE, 250))
+#W2 = tf.get_variable("W2", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+#W3 = tf.get_variable("W3", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+#W4 = tf.get_variable("W4", shape=[250, 250], initializer=weight_xavier_init(250, 250))
+#W5 = tf.get_variable("W5", shape=[250, OUTPUT_LAYER_SIZE], initializer=weight_xavier_init(250, OUTPUT_LAYER_SIZE))
+#
+#B1 = bias_variable([250])
+#B2 = bias_variable([250])
+#B3 = bias_variable([250])
+#B4 = bias_variable([250])
+#B5 = bias_variable([OUTPUT_LAYER_SIZE])
+#
+#
+## Construct model
+#_L1 = tf.nn.relu(tf.matmul(X, W1) +  B1)
+#L1 = tf.nn.dropout(_L1, dropout_rate)
+#_L2 = tf.nn.relu(tf.matmul(L1, W2) + B2)
+#L2 = tf.nn.dropout(_L2, dropout_rate)
+#_L3 = tf.nn.relu(tf.matmul(L2, W3) + B3)
+#L3 = tf.nn.dropout(_L3, dropout_rate)
+#_L4 = tf.nn.relu(tf.matmul(L3, W4) + B4)
+#L4 = tf.nn.dropout(_L4, dropout_rate)
+#
+#hypothesis = tf.matmul(L4, W5) + B5
+#
+## Minimize error using cross entropy
+#cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(hypothesis, Y)) # Softmax loss
+#optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(cost) # Adam Optimizer
+#
+## Initializing the variables
+#init = tf.initialize_all_variables()
+#
+#with tf.Session() as sess:
+#    sess.run(init)
+#    
+#    # Fit the line
+#    for step in range(TRAINING_EPOCHS):
+#        sess.run(optimizer, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE})
+#
+#        if step % 100 == 0:
+#              print (step, sess.run(cost, feed_dict={X:trainX, Y:trainY, dropout_rate:DROPOUT_RATE}), sess.run(W1), sess.run(W2), sess.run(W3), sess.run(W4), sess.run(W5))
+#
+#        correct_prediction = tf.equal(tf.argmax(hypothesis, 1), tf.argmax(Y, 1))
+#
+#        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+#        print ("accuracy:", accuracy.eval({X:testX, Y:testY, dropout_rate:1.0}))
